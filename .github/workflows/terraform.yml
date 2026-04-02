@@ -1,0 +1,76 @@
+name: Deploy to Amazon S3
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: m210-koppel-einkaufsliste-905418312807
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build
+      run: npm run build
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ASIA5FTZDBRT7QQFX5WB
+        aws-secret-access-key: M20D9mO8e1A3rtYdepBuHebZV31g6flMA1own6ky
+        aws-session-token: IQoJb3JpZ2luX2VjEKP//////////wEaCXVzLXdlc3QtMiJHMEUCIQCxuN1uzUYKw4h83VKZ/XozOR6xEy98gamyqUPNQOQluwIgVCnvtGCEiKrGjdNbo/rsME55spoVctXbXYLCltf/jPQqtgIIbBAAGgw5MDU0MTgzMTI4MDciDDieTRbQGgwv88rsEyqTAvb1MHaMvkf4yhYixqfRtIh8NAGT3I3Gmh1AavpDhrI5SJxXRsaY+3tZchV/9DY0Fr177nkWiBUqOsEjIM5eYRuPyVhyjX2L8ycsVkARnuQMZIkF8xqai2dWzmn6dxNBO+RwQC2hybKVXtGpkx7GjmUGBWnxP/EHrQWwQpYDeSxYAKmpgPDokvx3Zw230an/tt17MBgTyaBzeWySwGiHPRRkraTzIQb+kufAsbqyxwha8qAovVJc+dV8MANnrpKFRz9ypv8zEV4n2dVHtS6x9uU/95a0RAJ/jtFxyEjxmBpH3OLCWdw1ZmoNmSw1wWFPxxxwgnhflKmNVZ1HTiPs+L2a87NRzT3FS7rL8CH3xR9bJU82MPGVuc4GOp0ByblSzI/zvbJOCa9lj/300cz6v1zNKEQJCah5NFzaSReuzMKAAsFVkbtrfhgE0jjXHS+YSMwTqaZC3RMCMuGTqG//fPPfd9zFdTCT57f5otZMZF5JQ2ypH73BRVXEVqZ7NVRhuKWplyswblaeUEDZZGVCDh2CjQ2KMjqiFJL49mDrpACCw/SqgTfoQEfb2HoGOJEq/atTJIwhAgD8tg==
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Create S3 Bucket if not exists
+      run: |
+        aws s3api head-bucket --bucket ${{ env.S3_BUCKET }} 2>/dev/null || \
+        aws s3api create-bucket \
+          --bucket ${{ env.S3_BUCKET }} \
+          --region ${{ env.AWS_REGION }}
+        
+        aws s3api put-public-access-block \
+          --bucket ${{ env.S3_BUCKET }} \
+          --public-access-block-configuration \
+          "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+        aws s3api put-bucket-policy \
+          --bucket ${{ env.S3_BUCKET }} \
+          --policy "{
+            \"Version\": \"2012-10-17\",
+            \"Statement\": [{
+              \"Sid\": \"PublicReadGetObject\",
+              \"Effect\": \"Allow\",
+              \"Principal\": \"*\",
+              \"Action\": \"s3:GetObject\",
+              \"Resource\": \"arn:aws:s3:::${{ env.S3_BUCKET }}/*\"
+            }]
+          }"
+    - name: Deploy dist/ to S3
+      run: |
+        aws s3 sync ./ s3://${{ env.S3_BUCKET }} \
+          --delete \
+          --cache-control "public, max-age=31536000" \
+          --exclude "index.html" 
+        
+        # index.html separat ohne langen Cache
+        aws s3 cp ./index.html s3://${{ env.S3_BUCKET }}/index.html \
+          --cache-control "no-cache, no-store, must-revalidate"
